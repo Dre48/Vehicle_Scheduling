@@ -1,11 +1,12 @@
 # Train Environment and Q-learning Agent
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import pygame
 import random
 
-random.seed(48)
+#random.seed(48)
 
 class Train:
     def __init__(self, start, goal, departure_time, arrival_time):
@@ -22,6 +23,7 @@ class TrainEnvironment:
         self.n_states = n_states
         self.trains = trains
         self.stations = {'A': 0, 'B': 4, 'C': 8}  # Define the train stations
+        self.railway_switch = {}
         self.total_states = n_states #* len(trains)
         self.window_size = 1024
         self.window = None
@@ -50,7 +52,7 @@ class TrainEnvironment:
         delta_arrival_time = 0
         positions = [t.position for t in self.trains]
         if positions.count(train.position) > 1:
-            if train.position not in self.stations.values():
+            if train.position not in self.stations.values() or self.railway_switch:
                 reward = -100  # Collision penalty
                 crashed = True
                 self.reset()
@@ -70,12 +72,12 @@ class TrainEnvironment:
                 reward -= delta_arrival_time
         return [t.position for t in self.trains], reward, crashed, delta_arrival_time
     
-    def render_frame(self, step, episode, total_reward, actions, render = 1):
+    def render_frame(self, step, episode, total_reward, actions, render = 3):
         # initialisation of pygame
         if self.window == None:
             pygame.init()
             pygame.display.init()
-            self.window= pygame.display.set_mode((self.window_size, self.window_size))
+            self.window = pygame.display.set_mode((self.window_size, self.window_size))
         if self.clock == None:    
             self.clock = pygame.time.Clock()
         canvas = pygame.Surface((self.window_size, self.window_size))
@@ -138,7 +140,7 @@ class TrainEnvironment:
         self.clock.tick(render)
 
 class QLearningAgent:
-    def __init__(self, n_states, n_actions, learning_rate=0.6, discount_factor=0.5, exploration_rate=0.8, exploration_decay=0.9):
+    def __init__(self, n_states, n_actions, learning_rate=0.7, discount_factor=0.9, exploration_rate=0.5, exploration_decay=0.9):
         self.n_states = n_states
         self.n_actions = n_actions
         self.lr = learning_rate
@@ -161,7 +163,7 @@ class QLearningAgent:
         target = reward + self.gamma * np.max(self.q_table[next_state, :])
         self.q_table[state, action] = self.q_table[state, action] + self.lr * (target - predict)
 
-def train_agents(env, agents, n_episodes=10000, max_steps=70):
+def train_agents(env, agents, n_episodes=50000, max_steps=100, viz_on = 0):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_episodes):
@@ -192,15 +194,16 @@ def train_agents(env, agents, n_episodes=10000, max_steps=70):
             step += 1
             if crashed:  # Break out of the outer loop if the episode should end
                 break
+            if viz_on == 1:
+                env.render_frame(step, episode, total_reward, curr_action)    
         rewards_per_episode.append(total_reward)
         deltas_arrival.append(delay_per_episode)
-        env.render_frame(step, episode, total_reward, curr_action)
         env.reset()  # Reset the environment at the end of each episode
     pygame.display.quit()
     pygame.quit()
     return rewards_per_episode, deltas_arrival
 
-def evaluate_agent(env, agent, n_eval_episodes=5000, max_steps=100, q_table = None):
+def evaluate_agent(env, agent, n_eval_episodes=1000, max_steps=100, q_table = None, viz_on = 0):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_eval_episodes):
@@ -230,9 +233,10 @@ def evaluate_agent(env, agent, n_eval_episodes=5000, max_steps=100, q_table = No
             step += 1
             if crashed:  # Break out of the outer loop if the episode should end
                 break
+            if viz_on == 1:
+                env.render_frame(step, episode, total_reward, curr_action)    
         rewards_per_episode.append(total_reward)
         deltas_arrival.append(delay_per_episode)
-        env.render_frame(step, episode, total_reward, curr_action)
         env.reset()  # Reset the environment at the end of each episode
         mean_reward = np.mean(rewards_per_episode)
         std_reward = np.std(rewards_per_episode)
@@ -249,6 +253,32 @@ def print_q_table(q_table, agent_id):
         print(f"{state:5} | {actions[0]:8.2f} | {actions[1]:8.2f} | {actions[2]:8.2f}")
     print("-" * 40)
 
+def grid_search(env, agents):
+    Results = pd.DataFrame(columns = ['training_episodes', 'max_epsilon', 'decay_rate', 'learning_rate', 'gamma', 'mean_reward', 'mean_lateness'])
+    n_training_episodes = [1000, 10000, 50000]
+    epsilon = [1, 0.5, 0.7]
+    decay_rate = [0.9, 0.95, 0.995]
+    max_steps = 100
+    learning_rate = [0.9, 0.6, 0.3]
+    gamma = [0.8, 0.9, 0.95]
+
+    for a in n_training_episodes:
+        for b in epsilon:
+            for c in decay_rate:
+                for d in learning_rate:
+                    for e in gamma:
+                        for f in agents:
+                            f.lr = d
+                            f.gamma = e
+                            f.epsilon = b
+                            f.epsilon_decay = c
+                        rewards_per_episode, deltas_arrival = train_agents(env, agents, n_episodes = a)
+                        dict_frame = {'training_episodes': [a], 'max_epsilon': [b], 'decay_rate': [c], 'learning_rate': [d], 'gamma': [e], 'mean_reward': [np.mean(rewards_per_episode)], 'mean_lateness': [np.mean(deltas_arrival)]}
+                        Results = pd.concat([Results, pd.DataFrame.from_dict(dict_frame)], ignore_index = True)
+                        Results = Results.sort_values(by='mean_reward', ascending=False)
+                        print(Results.iloc[0:5,:])
+    return Results
+                        
 
 # Initialize environment and agents
 trains = [
@@ -282,7 +312,7 @@ mean_reward2, std_reward2, delay_per_episode_eval2 = evaluate_agent(env2, agents
 print(f"Mean_reward={mean_reward:.2f} +/- {std_reward:.2f}")
 print(f"Mean_reward Delayed ={mean_reward2:.2f} +/- {std_reward2:.2f}")
 
-
+hyperparameter_tuning = grid_search(env,agents)
 
 # Output Q-Table
 for i, agent in enumerate(agents):
