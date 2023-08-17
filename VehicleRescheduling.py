@@ -201,7 +201,7 @@ class QLearningAgent:
         target = reward + self.gamma * np.max(self.q_table[next_state, :])
         self.q_table[state, action] = self.q_table[state, action] + self.lr * (target - predict)
 
-def train_agents(env, agents, n_episodes=10000, max_steps=300, viz_on = 0):
+def train_agents(env, agents, n_episodes, max_steps, viz_on):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_episodes):
@@ -279,7 +279,8 @@ def evaluate_agent(env, agent, n_eval_episodes, max_steps, q_table, viz_on):
             total_reward = np.sum([i.reward for i in env.trains])
             if viz_on == 1:
                 env.render_frame(env, step, episode, total_reward, curr_action)    
-            if crashed:  # Break out of the outer loop if the episode should end
+            if True in [m.crashed for m in env.trains]:  # Break out of the outer loop if the episode should end
+                env.reset()
                 break
          # Penalty if agent did not arrive in Goal state
         for i in env.trains:
@@ -324,7 +325,7 @@ def grid_search(env, agents):
                             f.gamma = e
                             f.epsilon = b
                             f.epsilon_decay = c
-                        rewards_per_episode, deltas_arrival = train_agents(env, agents, n_episodes = a)
+                        rewards_per_episode, deltas_arrival = train_agents(env, agents, n_episodes = a, max_steps = max_steps, viz_on = 0)
                         dict_frame = {'training_episodes': [a], 'max_epsilon': [b], 'decay_rate': [c], 'learning_rate': [d], 'gamma': [e], 'mean_reward': [np.mean(rewards_per_episode)], 'mean_lateness': [np.mean(deltas_arrival)]}
                         Results = pd.concat([Results, pd.DataFrame.from_dict(dict_frame)], ignore_index = True)
                         Results = Results.sort_values(by='mean_reward', ascending=False)
@@ -344,10 +345,10 @@ env = TrainEnvironment(9, trains)
 agents = [QLearningAgent(env.total_states, 3, learning_rate=0.3, discount_factor=0.8, exploration_rate=0.2, exploration_decay=0.950) for _ in env.trains]
 
 # Train the agents
-rewards, delay_per_episode = train_agents(env, agents)
+rewards, delay_per_episode = train_agents(env, agents, n_episodes=15000, max_steps=300, viz_on = 0)
 
 # Performance Evaluation - based on learned q-values
-mean_reward, std_reward, delay_per_episode_eval = evaluate_agent(env, agents, n_eval_episodes=1000, max_steps=500, q_table = rewards, viz_on = 0)
+mean_reward, std_reward, delay_per_episode_eval = evaluate_agent(env, agents, n_eval_episodes=1000, max_steps=300, q_table = rewards, viz_on = 0)
 
 # Initialize 'Delayed-Schedule' and agents
 trains_delayed = [
@@ -358,13 +359,13 @@ trains_delayed = [
     Train(4, 8, 4, departure_time=7, arrival_time=11)
 ]
 env_delayed = TrainEnvironment(9, trains_delayed)
-agents_delayed = [QLearningAgent(env_delayed.total_states, 3, learning_rate=0.3, discount_factor=0.9, exploration_rate=0.8, exploration_decay=0.995) for _ in env_delayed.trains]
+agents_delayed = [QLearningAgent(env_delayed.total_states, 3, learning_rate=0.3, discount_factor=0.8, exploration_rate=0.2, exploration_decay=0.950) for _ in env_delayed.trains]
 
-# Train the agents
-rewards_delayed, delay_per_episode_delayed = train_agents(env_delayed, agents_delayed)
+# Train the agents - Delayed Schedule
+rewards_delayed, delay_per_episode_delayed = train_agents(env_delayed, agents_delayed, n_episodes=15000, max_steps=300, viz_on = 0)
 
 # Performance Evaluation of delayed schedule - Same Q-Values
-mean_reward_delayed, std_reward_delayed, delay_per_episode_eval_delayed = evaluate_agent(env_delayed, agents_delayed, n_eval_episodes=1000, max_steps=500, q_table = rewards_delayed, viz_on = 0)
+mean_reward_delayed, std_reward_delayed, delay_per_episode_eval_delayed = evaluate_agent(env_delayed, agents_delayed, n_eval_episodes=1000, max_steps=300, q_table = rewards_delayed, viz_on = 0)
 
 
 # Output Performance Evaluation - Standard Schedule and Delayed Schedule
@@ -373,7 +374,7 @@ print(f"Mean_reward Delayed ={mean_reward_delayed:.2f} +/- {std_reward_delayed:.
 
 # Hyperparameter Tuning for Optimal and delayed Model
 #hyperparameter_tuning = grid_search(env,agents)
-hyperparameter_tuning_delayed = grid_search(env_delayed,agents_delayed)
+#hyperparameter_tuning_delayed = grid_search(env_delayed,agents_delayed)
 
 # Output Q-Table
 for i, agent in enumerate(agents):
@@ -403,15 +404,6 @@ plt.show()
 
 # Visualize the training progress
 plt.figure(figsize=(10, 6))
-plt.plot(delay_per_episode_eval)
-plt.xlabel('Episode')
-plt.ylabel('Total Delay')
-plt.title('Total Delay per Episode for evaluate Agent')
-plt.grid(True)
-
-
-# Visualize the training progress
-plt.figure(figsize=(10, 6))
 plt.bar(range(len(rewards_delayed)),rewards_delayed)
 plt.xlabel('Episode')
 plt.ylabel('Total Reward')
@@ -427,11 +419,3 @@ plt.ylabel('Total Delay')
 plt.title('Total Delay per Episode (Delayed)')
 plt.grid(True)
 plt.show()
-
-# Visualize the training progress
-plt.figure(figsize=(10, 6))
-plt.plot(delay_per_episode_eval_delayed)
-plt.xlabel('Episode')
-plt.ylabel('Total Delay')
-plt.title('Total Delay per Episode for evaluate Agent (Delayed)')
-plt.grid(True)
