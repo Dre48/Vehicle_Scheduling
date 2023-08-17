@@ -27,8 +27,8 @@ class TrainEnvironment:
         self.n_states = n_states
         self.trains = trains
         self.stations = {'A': 0, 'B': 4, 'C': 8}  # Define the train stations
-        self.railway_switch = {'X': 2, 'Y': 4}
-        self.total_states = n_states #* len(trains)
+        self.railway_switch = {'X': 2, 'Y': 6}
+        self.total_states = n_states
         self.window_size = 512
         self.window = None
         self.clock = None
