@@ -163,7 +163,7 @@ class QLearningAgent:
         target = reward + self.gamma * np.max(self.q_table[next_state, :])
         self.q_table[state, action] = self.q_table[state, action] + self.lr * (target - predict)
 
-def train_agents(env, agents, n_episodes=50000, max_steps=100, viz_on = 0):
+def train_agents(env, agents, n_episodes=5000, max_steps=100, viz_on = 0):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_episodes):
@@ -255,7 +255,7 @@ def print_q_table(q_table, agent_id):
 
 def grid_search(env, agents):
     Results = pd.DataFrame(columns = ['training_episodes', 'max_epsilon', 'decay_rate', 'learning_rate', 'gamma', 'mean_reward', 'mean_lateness'])
-    n_training_episodes = [1000, 10000, 50000]
+    n_training_episodes = [1000, 50000, 10000]
     epsilon = [1, 0.5, 0.7]
     decay_rate = [0.9, 0.95, 0.995]
     max_steps = 100
