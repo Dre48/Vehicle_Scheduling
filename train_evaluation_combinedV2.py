@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pygame
 import random
 
-#random.seed(48)
+random.seed(48)
 
 class Train:
     def __init__(self, start, goal, departure_time, arrival_time):
@@ -140,7 +140,7 @@ class TrainEnvironment:
         self.clock.tick(render)
 
 class QLearningAgent:
-    def __init__(self, n_states, n_actions, learning_rate=0.7, discount_factor=0.9, exploration_rate=0.5, exploration_decay=0.9):
+    def __init__(self, n_states, n_actions, learning_rate=0.3, discount_factor=0.8, exploration_rate=0.5, exploration_decay=0.9995):
         self.n_states = n_states
         self.n_actions = n_actions
         self.lr = learning_rate
@@ -163,7 +163,7 @@ class QLearningAgent:
         target = reward + self.gamma * np.max(self.q_table[next_state, :])
         self.q_table[state, action] = self.q_table[state, action] + self.lr * (target - predict)
 
-def train_agents(env, agents, n_episodes=5000, max_steps=100, viz_on = 0):
+def train_agents(env, agents, n_episodes=50000, max_steps=300, viz_on = 0):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_episodes):
@@ -187,7 +187,7 @@ def train_agents(env, agents, n_episodes=5000, max_steps=100, viz_on = 0):
                     total_reward += reward
                     if next_state[i] == env.trains[i].goal:
                         done[i] = True
-                if crashed:  # Check if the episode should end due to a collision
+                if crashed: # Check if the episode should end due to a collision
                     break
             state = next_state  # Update the state
             print(f"Train State: {state}")
@@ -196,6 +196,12 @@ def train_agents(env, agents, n_episodes=5000, max_steps=100, viz_on = 0):
                 break
             if viz_on == 1:
                 env.render_frame(step, episode, total_reward, curr_action)    
+        # Penalty if agent did not arrive in Goal state
+        for i in  env.trains:
+            if i.actual_arrival_time == None:
+                i.actual_arrival_time = max_steps
+                delay_per_episode += i.actual_arrival_time - i.arrival_time
+           
         rewards_per_episode.append(total_reward)
         deltas_arrival.append(delay_per_episode)
         env.reset()  # Reset the environment at the end of each episode
@@ -203,7 +209,7 @@ def train_agents(env, agents, n_episodes=5000, max_steps=100, viz_on = 0):
     pygame.quit()
     return rewards_per_episode, deltas_arrival
 
-def evaluate_agent(env, agent, n_eval_episodes=1000, max_steps=100, q_table = None, viz_on = 0):
+def evaluate_agent(env, agent, n_eval_episodes=1000, max_steps=500, q_table = None, viz_on = 0):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_eval_episodes):
@@ -255,10 +261,10 @@ def print_q_table(q_table, agent_id):
 
 def grid_search(env, agents):
     Results = pd.DataFrame(columns = ['training_episodes', 'max_epsilon', 'decay_rate', 'learning_rate', 'gamma', 'mean_reward', 'mean_lateness'])
-    n_training_episodes = [1000, 50000, 10000]
+    n_training_episodes = [30000]
     epsilon = [1, 0.5, 0.7]
     decay_rate = [0.9, 0.95, 0.995]
-    max_steps = 100
+    max_steps = 300
     learning_rate = [0.9, 0.6, 0.3]
     gamma = [0.8, 0.9, 0.95]
 
@@ -276,15 +282,17 @@ def grid_search(env, agents):
                         dict_frame = {'training_episodes': [a], 'max_epsilon': [b], 'decay_rate': [c], 'learning_rate': [d], 'gamma': [e], 'mean_reward': [np.mean(rewards_per_episode)], 'mean_lateness': [np.mean(deltas_arrival)]}
                         Results = pd.concat([Results, pd.DataFrame.from_dict(dict_frame)], ignore_index = True)
                         Results = Results.sort_values(by='mean_reward', ascending=False)
-                        print(Results.iloc[0:5,:])
+                        print(Results.iloc[0:10,:])
     return Results
                         
 
 # Initialize environment and agents
 trains = [
-    Train(0, 4, departure_time=0, arrival_time=5),
-    Train(0, 8, departure_time=7, arrival_time=18),
-    Train(8, 4, departure_time=0, arrival_time=5)
+    Train(0, 4, departure_time=1, arrival_time=5),
+    Train(4, 0, departure_time=6, arrival_time=10),
+    Train(0, 8, departure_time=0, arrival_time=8),
+    Train(8, 4, departure_time=0, arrival_time=4),
+    Train(4, 8, departure_time=6, arrival_time=10),
 ]
 env = TrainEnvironment(9, trains)
 agents = [QLearningAgent(env.total_states, 3) for _ in env.trains]
@@ -297,31 +305,35 @@ mean_reward, std_reward, delay_per_episode_eval = evaluate_agent(env, agents, q_
 
 # Initalizing delayed environment
 trains2 = [
-    Train(0, 4, departure_time=5, arrival_time=5),
-    Train(0, 8, departure_time=7, arrival_time=18),
-    Train(8, 4, departure_time=0, arrival_time=5)
+    Train(0, 4, departure_time=1, arrival_time=5),
+    Train(4, 0, departure_time=6, arrival_time=10),
+    Train(0, 8, departure_time=0, arrival_time=8),
+    Train(8, 4, departure_time=0, arrival_time=4),
+    Train(4, 8, departure_time=6, arrival_time=10),
 ]
-env2 = TrainEnvironment(9, trains2)
-agents2 = [QLearningAgent(env2.total_states, 3) for _ in env2.trains]
+#env2 = TrainEnvironment(9, trains2)
+#agents2 = [QLearningAgent(env2.total_states, 3) for _ in env2.trains]
+
+# Train the agents
+#rewards2, delay_per_episode2 = train_agents(env2, agents2)
 
 # Performance Evaluation of delayed schedule - Same Q-Values
-mean_reward2, std_reward2, delay_per_episode_eval2 = evaluate_agent(env2, agents2, q_table = rewards)
+#mean_reward2, std_reward2, delay_per_episode_eval2 = evaluate_agent(env2, agents2, q_table = rewards2)
 
 
 # Output Performance Evaluation - Standard Schedule and Deleayed Schedule
 print(f"Mean_reward={mean_reward:.2f} +/- {std_reward:.2f}")
-print(f"Mean_reward Delayed ={mean_reward2:.2f} +/- {std_reward2:.2f}")
+#print(f"Mean_reward Delayed ={mean_reward2:.2f} +/- {std_reward2:.2f}")
 
-hyperparameter_tuning = grid_search(env,agents)
+#hyperparameter_tuning = grid_search(env,agents)
 
 # Output Q-Table
 for i, agent in enumerate(agents):
     print_q_table(agent.q_table, i)
-    
 
 # Visualize the training progress
 plt.figure(figsize=(10, 6))
-plt.plot(rewards)
+plt.bar(range(len(rewards)),rewards)
 plt.xlabel('Episode')
 plt.ylabel('Total Reward')
 plt.title('Total Reward per Episode')
@@ -330,7 +342,7 @@ plt.show()
 
 # Visualize the training progress
 plt.figure(figsize=(10, 6))
-plt.plot(delay_per_episode)
+plt.bar(range(len(delay_per_episode)),delay_per_episode)
 plt.xlabel('Episode')
 plt.ylabel('Total Delay')
 plt.title('Total Delay per Episode')
@@ -344,12 +356,3 @@ plt.xlabel('Episode')
 plt.ylabel('Total Delay')
 plt.title('Total Delay per Episode')
 plt.grid(True)
-
-plt.show()# Visualize the training progress
-plt.figure(figsize=(10, 6))
-plt.plot(delay_per_episode_eval2)
-plt.xlabel('Episode')
-plt.ylabel('Total Delay')
-plt.title('Total Delay per Episode')
-plt.grid(True)
-plt.show()
