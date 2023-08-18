@@ -58,9 +58,9 @@ class TrainEnvironment:
         delta_arrival_time = 0
         positions = [t.position for t in self.trains]
         if positions.count(train.position) > 1:
-            if train.position not in self.stations.values() or self.railway_switch:
+            if train.position not in self.stations.values() and train.position not in self.railway_switch.values():
                 for v in self.trains:
-                    if v.position == train.position and v.position not in self.stations.values():
+                    if v.position == train.position and v.position not in self.stations.values() and v.position not in self.railway_switch.values():
                         v.reward = -100  # Collision penalty
                         v.done = True
                         v.crashed = True

@@ -27,7 +27,7 @@ class TrainEnvironment:
         self.n_states = n_states
         self.trains = trains
         self.stations = {'A': 0, 'B': 4, 'C': 8}  # Define the train stations
-        self.railway_switch = {'X': 2, 'Y': 6}
+        self.railway_switch = {'X': 1, 'Y': 7}
         self.total_states = n_states
         self.window_size = 512
         self.window = None
@@ -58,9 +58,9 @@ class TrainEnvironment:
         delta_arrival_time = 0
         positions = [t.position for t in self.trains]
         if positions.count(train.position) > 1:
-            if train.position not in self.stations.values() and train.position not in self.railway_switch:
+            if train.position not in self.stations.values() and train.position not in self.railway_switch.values():
                 for v in self.trains:
-                    if v.position == train.position and v.position not in self.stations.values():
+                    if v.position == train.position and v.position not in self.stations.values() and v.position not in self.railway_switch.values():
                         v.reward = -100  # Collision penalty
                         v.done = True
                         v.crashed = True
@@ -367,13 +367,12 @@ rewards_delayed, delay_per_episode_delayed = train_agents(env_delayed, agents_de
 # Performance Evaluation of delayed schedule - Same Q-Values
 mean_reward_delayed, std_reward_delayed, delay_per_episode_eval_delayed = evaluate_agent(env_delayed, agents_delayed, n_eval_episodes=1000, max_steps=300, q_table = rewards_delayed, viz_on = 0)
 
-
 # Output Performance Evaluation - Standard Schedule and Delayed Schedule
 print(f"Mean_reward={mean_reward:.2f} +/- {std_reward:.2f}")
 print(f"Mean_reward Delayed ={mean_reward_delayed:.2f} +/- {std_reward_delayed:.2f}")
 
 # Hyperparameter Tuning for Optimal and delayed Model
-#hyperparameter_tuning = grid_search(env,agents)
+hyperparameter_tuning = grid_search(env,agents)
 #hyperparameter_tuning_delayed = grid_search(env_delayed,agents_delayed)
 
 # Output Q-Table
