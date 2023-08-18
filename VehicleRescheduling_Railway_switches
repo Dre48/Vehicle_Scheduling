@@ -9,7 +9,7 @@ random.seed(48)
 np.random.seed(48)
 
 class Train:
-    def __init__(self, start, goal, name, departure_time, arrival_time):
+    def __init__(self, start, goal, name, precessor, departure_time, arrival_time):
         self.name = name
         self.start = start
         self.position = start
@@ -21,15 +21,16 @@ class Train:
         self.reward = 0
         self.crashed = False
         self.done = False
+        self.precessor = precessor
 
 class TrainEnvironment:
     def __init__(self, n_states, trains):
         self.n_states = n_states
         self.trains = trains
         self.stations = {'A': 0, 'B': 4, 'C': 8}  # Define the train stations
-        self.railway_switch = {'X': 1, 'Y': 7}
+        self.railway_switch = {'X':2, 'Y':6}
         self.total_states = n_states
-        self.window_size = 512
+        self.window_size = 1024
         self.window = None
         self.clock = None
         self.reset()
@@ -60,7 +61,7 @@ class TrainEnvironment:
         if positions.count(train.position) > 1:
             if train.position not in self.stations.values() and train.position not in self.railway_switch.values():
                 for v in self.trains:
-                    if v.position == train.position and v.position not in self.stations.values() and v.position not in self.railway_switch.values():
+                    if v.position == train.position and (v.position not in self.stations.values() or self.railway_switch):
                         v.reward = -100  # Collision penalty
                         v.done = True
                         v.crashed = True
@@ -201,7 +202,7 @@ class QLearningAgent:
         target = reward + self.gamma * np.max(self.q_table[next_state, :])
         self.q_table[state, action] = self.q_table[state, action] + self.lr * (target - predict)
 
-def train_agents(env, agents, n_episodes, max_steps, viz_on):
+def train_agents(env, agents, n_episodes=10000, max_steps=300, viz_on = 1):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_episodes):
@@ -215,20 +216,20 @@ def train_agents(env, agents, n_episodes, max_steps, viz_on):
         while not all(done) and step < max_steps:
             curr_action = []
             for i, agent in enumerate(agents):
-                if not done[i] and step >= env.trains[i].departure_time:
+                if not env.trains[i].done and step >= env.trains[i].departure_time and (env.trains[i].precessor == None or (env.trains[env.trains[i].precessor].done == True and env.trains[env.trains[i].precessor].crashed != True and (curr_action[env.trains[i].precessor][-1] == None or env.trains[i].precessor == None))):
                     action = agent.choose_action(state[i])
                     curr_action.append((i, action))
                     next_state, reward, delta_arrival_time = env.step(i, action, step)
-                    print(f"Train {i} Action: {action}")
+                    #print(f"Train {i} Action: {action}")
                     agent.learn(state[i], action, reward, next_state[i])
                     delay_per_episode += delta_arrival_time
-                    print('Reward', reward)
+                    #print('Reward', reward)
                     if next_state[i] == env.trains[i].goal:
                         done[i] = True
                 else:
                     curr_action.append((i, None))
             state = next_state  # Update the state
-            print(f"Train State: {state}")
+            #print(f"Train State: {state}")
             step += 1
             total_reward = np.sum([i.reward for i in env.trains])
             if viz_on == 1:
@@ -241,6 +242,10 @@ def train_agents(env, agents, n_episodes, max_steps, viz_on):
             if i.actual_arrival_time == None:
                 i.actual_arrival_time = max_steps
                 delay_per_episode += i.actual_arrival_time - i.arrival_time
+        
+        # decay of epsilon
+        for j in agents:
+            j.epsilon = j.epsilon * j.epsilon_decay
            
         rewards_per_episode.append(total_reward)
         deltas_arrival.append(delay_per_episode)
@@ -249,7 +254,7 @@ def train_agents(env, agents, n_episodes, max_steps, viz_on):
     pygame.quit()
     return rewards_per_episode, deltas_arrival
 
-def evaluate_agent(env, agent, n_eval_episodes, max_steps, q_table, viz_on):
+def evaluate_agent(env, agent, n_eval_episodes=1000, max_steps=200, q_table = None, viz_on = 1):
     rewards_per_episode = []
     deltas_arrival = []
     for episode in range(n_eval_episodes):
@@ -263,30 +268,33 @@ def evaluate_agent(env, agent, n_eval_episodes, max_steps, q_table, viz_on):
         while not all(done) and step < max_steps:
             curr_action = []
             for i, agent in enumerate(agents):
-                if not done[i] and step >= env.trains[i].departure_time:
+                if not env.trains[i].done and step >= env.trains[i].departure_time and (env.trains[i].precessor == None or (env.trains[env.trains[i].precessor].done == True and env.trains[env.trains[i].precessor].crashed != True and (curr_action[env.trains[i].precessor][-1] == None or env.trains[i].precessor == None))):
                     action = agent.choose_action_evaluation(state[i])
                     curr_action.append((i, action))
                     next_state, reward, delta_arrival_time = env.step(i, action, step)
-                    print(f"Train {i} Action (Evaluation): {action}")
+                    #print(f"Train {i} Action (Evaluation): {action}")
                     delay_per_episode += delta_arrival_time
                     if next_state[i] == env.trains[i].goal:
                         done[i] = True
                 else:
                     curr_action.append((i, None))
             state = next_state  # Update the state
-            print(f"Train State (Evaluation): {state}")
+            #print(f"Train State (Evaluation): {state}")
             step += 1
             total_reward = np.sum([i.reward for i in env.trains])
             if viz_on == 1:
                 env.render_frame(env, step, episode, total_reward, curr_action)    
-            if True in [m.crashed for m in env.trains]:  # Break out of the outer loop if the episode should end
-                env.reset()
+            if crashed:  # Break out of the outer loop if the episode should end
                 break
          # Penalty if agent did not arrive in Goal state
         for i in env.trains:
             if i.actual_arrival_time == None:
                 i.actual_arrival_time = max_steps
                 delay_per_episode += i.actual_arrival_time - i.arrival_time
+
+        # decay of epsilon
+        for j in agents:
+            j.epsilon = j.epsilon * j.epsilon_decay
 
         rewards_per_episode.append(total_reward)
         deltas_arrival.append(delay_per_episode)
@@ -308,11 +316,11 @@ def print_q_table(q_table, agent_id):
 
 def grid_search(env, agents):
     Results = pd.DataFrame(columns = ['training_episodes', 'max_epsilon', 'decay_rate', 'learning_rate', 'gamma', 'mean_reward', 'mean_lateness'])
-    n_training_episodes = [15000]
-    epsilon = [0.2, 0.4, 0.6]
+    n_training_episodes = [10000]
+    epsilon = [0.5, 0.8]
     decay_rate = [0.95, 0.995]
-    max_steps = 300
-    learning_rate = [0.9, 0.6, 0.3]
+    max_steps = 200
+    learning_rate = [0.2, 0.6, 0.9]
     gamma = [0.8, 0.9]
 
     for a in n_training_episodes:
@@ -325,61 +333,61 @@ def grid_search(env, agents):
                             f.gamma = e
                             f.epsilon = b
                             f.epsilon_decay = c
-                        rewards_per_episode, deltas_arrival = train_agents(env, agents, n_episodes = a, max_steps = max_steps, viz_on = 0)
+                        rewards_per_episode, deltas_arrival = train_agents(env, agents, n_episodes = a)
                         dict_frame = {'training_episodes': [a], 'max_epsilon': [b], 'decay_rate': [c], 'learning_rate': [d], 'gamma': [e], 'mean_reward': [np.mean(rewards_per_episode)], 'mean_lateness': [np.mean(deltas_arrival)]}
                         Results = pd.concat([Results, pd.DataFrame.from_dict(dict_frame)], ignore_index = True)
                         Results = Results.sort_values(by='mean_reward', ascending=False)
                         print(Results.iloc[0:10,:])
     return Results
                         
-
-# Initialize 'Planned-Schedule' and agents
+# Initialize environment and agents
 trains = [
-    Train(0, 4, 0, departure_time=3, arrival_time=7),
-    Train(4, 0, 1, departure_time=8, arrival_time=12),
-    Train(0, 8, 2, departure_time=0, arrival_time=8),
-    Train(8, 4, 3, departure_time=0, arrival_time=4),
-    Train(4, 8, 4, departure_time=7, arrival_time=11) 
+    Train(0, 4, 0, None, departure_time=3, arrival_time=7),
+    Train(4, 0, 1, 0, departure_time=8, arrival_time=12),
+    Train(0, 8, 2, None, departure_time=0, arrival_time=8),
+    Train(8, 4, 3, None, departure_time=0, arrival_time=4),
+    Train(4, 8, 4, 3, departure_time=7, arrival_time=11)
 ]
 env = TrainEnvironment(9, trains)
-agents = [QLearningAgent(env.total_states, 3, learning_rate=0.3, discount_factor=0.8, exploration_rate=0.2, exploration_decay=0.950) for _ in env.trains]
+agents = [QLearningAgent(env.total_states, 3, learning_rate=0.2, discount_factor=0.8, exploration_rate=0.8, exploration_decay=0.95) for _ in env.trains]
 
 # Train the agents
-rewards, delay_per_episode = train_agents(env, agents, n_episodes=15000, max_steps=300, viz_on = 0)
+rewards, delay_per_episode = train_agents(env, agents)
 
-# Performance Evaluation - based on learned q-values
-mean_reward, std_reward, delay_per_episode_eval = evaluate_agent(env, agents, n_eval_episodes=1000, max_steps=300, q_table = rewards, viz_on = 0)
+# Performance Evaluation - based on learned q-vmax_alues
+mean_reward, std_reward, delay_per_episode_eval = evaluate_agent(env, agents, q_table = rewards)
 
-# Initialize 'Delayed-Schedule' and agents
+# Initalizing delayed environment
 trains_delayed = [
-    Train(0, 4, 0, departure_time=3, arrival_time=7),
-    Train(4, 0, 1, departure_time=8, arrival_time=12),
-    Train(0, 8, 2, departure_time=5, arrival_time=8),
-    Train(8, 4, 3, departure_time=0, arrival_time=4),
-    Train(4, 8, 4, departure_time=7, arrival_time=11)
+    Train(0, 4, 0, None, departure_time=3, arrival_time=7),
+    Train(4, 0, 1, 0, departure_time=8, arrival_time=12),
+    Train(0, 8, 2, None, departure_time=5, arrival_time=8),
+    Train(8, 4, 3, None, departure_time=0, arrival_time=4),
+    Train(4, 8, 4, 3, departure_time=7, arrival_time=11)
 ]
 env_delayed = TrainEnvironment(9, trains_delayed)
-agents_delayed = [QLearningAgent(env_delayed.total_states, 3, learning_rate=0.3, discount_factor=0.8, exploration_rate=0.2, exploration_decay=0.950) for _ in env_delayed.trains]
+agents_delayed = [QLearningAgent(env_delayed.total_states, 3, learning_rate=0.2, discount_factor=0.8, exploration_rate=0.5, exploration_decay=0.95) for _ in env_delayed.trains]
 
 # Train the agents
-rewards_delayed, delay_per_episode_delayed = train_agents(env_delayed, agents_delayed, n_episodes=15000, max_steps=300, viz_on = 0)
+rewards_delayed, delay_per_episode_delayed = train_agents(env_delayed, agents_delayed)
 
 # Performance Evaluation of delayed schedule - Same Q-Values
-mean_reward_delayed, std_reward_delayed, delay_per_episode_eval_delayed = evaluate_agent(env_delayed, agents_delayed, n_eval_episodes=1000, max_steps=300, q_table = rewards_delayed, viz_on = 0)
+mean_reward_delayed, std_reward_delayed, delay_per_episode_eval_delayed = evaluate_agent(env_delayed, agents_delayed, q_table = rewards_delayed)
 
-# Output Performance Evaluation - Standard Schedule and Delayed Schedule
+
+# Output Performance Evaluation - Standard Schedule and Deleayed Schedule
 print(f"Mean_reward={mean_reward:.2f} +/- {std_reward:.2f}")
 print(f"Mean_reward Delayed ={mean_reward_delayed:.2f} +/- {std_reward_delayed:.2f}")
 
 # Hyperparameter Tuning for Optimal and delayed Model
 hyperparameter_tuning = grid_search(env,agents)
-#hyperparameter_tuning_delayed = grid_search(env_delayed,agents_delayed)
+hyperparameter_tuning_delayed = grid_search(env_delayed,agents_delayed)
 
 # Output Q-Table
 for i, agent in enumerate(agents):
     print_q_table(agent.q_table, i)
     
-# Output Q-Table 'Delayed-Schedule'
+# Output Q-Table
 for i, agent in enumerate(agents_delayed):
     print_q_table(agent.q_table, i)
 
@@ -394,19 +402,19 @@ plt.show()
 
 # Visualize the training progress
 plt.figure(figsize=(10, 6))
-plt.bar(range(len(delay_per_episode)),delay_per_episode)
+plt.bar(range(len(rewards_delayed)),rewards_delayed)
 plt.xlabel('Episode')
-plt.ylabel('Total Delay')
-plt.title('Total Delay per Episode')
+plt.ylabel('Total Reward')
+plt.title('Total Reward per Episode (Delayed)')
 plt.grid(True)
 plt.show()
 
 # Visualize the training progress
 plt.figure(figsize=(10, 6))
-plt.bar(range(len(rewards_delayed)),rewards_delayed)
+plt.bar(range(len(delay_per_episode)),delay_per_episode)
 plt.xlabel('Episode')
-plt.ylabel('Total Reward')
-plt.title('Total Reward per Episode (Delayed)')
+plt.ylabel('Total Delay')
+plt.title('Total Delay per Episode')
 plt.grid(True)
 plt.show()
 
@@ -418,3 +426,19 @@ plt.ylabel('Total Delay')
 plt.title('Total Delay per Episode (Delayed)')
 plt.grid(True)
 plt.show()
+
+# Visualize the training progress
+plt.figure(figsize=(10, 6))
+plt.plot(delay_per_episode_eval)
+plt.xlabel('Episode')
+plt.ylabel('Total Delay')
+plt.title('Total Delay per Episode for evaluate Agent')
+plt.grid(True)
+
+# Visualize the training progress
+plt.figure(figsize=(10, 6))
+plt.plot(delay_per_episode_eval_delayed)
+plt.xlabel('Episode')
+plt.ylabel('Total Delay')
+plt.title('Total Delay per Episode for evaluate Agent (Delayed)')
+plt.grid(True)
